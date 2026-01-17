@@ -8,6 +8,8 @@ Contains hardware and software for the air quality sensor
 # The graph
 <img width="1529" height="502" alt="image" src="https://github.com/user-attachments/assets/cce3a1c5-918b-450b-8e28-b8cc78ea60e3" />
 <img width="1530" height="500" alt="image" src="https://github.com/user-attachments/assets/69cdf546-f484-4885-bee2-9de19285dcd6" />
+![Uploading image.png…]()
+
 
 # The app
 <img width="858" height="1908" alt="image" src="https://github.com/user-attachments/assets/9763e0fc-75a6-4e6f-9832-26874d2558a0" />
