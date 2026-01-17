@@ -1,4 +1,4 @@
-<img width="858" height="1908" alt="image" src="https://github.com/user-attachments/assets/a7fd5b75-f853-41a1-81cf-cf33901effbd" /># device_air_quality_sensor
+# device_air_quality_sensor
 Contains hardware and software for the air quality sensor
 
 # The electric mapping and real circuit
@@ -11,5 +11,5 @@ Contains hardware and software for the air quality sensor
 
 # The app
 <img width="858" height="1908" alt="image" src="https://github.com/user-attachments/assets/9763e0fc-75a6-4e6f-9832-26874d2558a0" />
-<img width="858" height="1908" alt="image" src="https://github.com/user-attachments/assets/17ee791b-26d1-4e5b-9fa3-90bd49a29e91" />
+<img width="858" height="1908" alt="image" src="https://github.com/user-attachments/assets/a7fd5b75-f853-41a1-81cf-cf33901effbd" />
 
