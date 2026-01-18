@@ -3,12 +3,12 @@
 #include <SoftwareSerial.h>
 
 /* ================== WiFi Settings ================== */
-const char* ssid = "";
-const char* password = "";
+const char* ssid = ""; // Put your wifi name here
+const char* password = ""; // PUt your wifi password here
 
 /* ================= ThingSpeak Settings ============== */
-unsigned long channelID = 0;
-const char* writeAPIKey = "";
+unsigned long channelID = 0; // Put your ChannelID here
+const char* writeAPIKey = ""; // Put your API key here
 
 /* ================= PMS7003 Settings ================= */
 #define PMS_RX 16
