@@ -3,12 +3,12 @@
 #include <SoftwareSerial.h>
 
 /* ================== WiFi Settings ================== */
-const char* ssid = "BinhNguyen2.4G";
-const char* password = "0913345575";
+const char* ssid = "";
+const char* password = "";
 
 /* ================= ThingSpeak Settings ============== */
-unsigned long channelID = 3230888;
-const char* writeAPIKey = "O0Q4QD4TJTTGODA8";
+unsigned long channelID = 0;
+const char* writeAPIKey = "";
 
 /* ================= PMS7003 Settings ================= */
 #define PMS_RX 16
@@ -158,8 +158,6 @@ void loop() {
       ThingSpeak.setField(3, pm10);
       ThingSpeak.setField(4, aqi);
       ThingSpeak.writeFields(channelID, writeAPIKey);
-
-      Serial.println(status == 200 ? "ThingSpeak update OK" : "ThingSpeak update FAILED");
 
 
       lastHealthyTime = millis();   // ✅ system is healthy
