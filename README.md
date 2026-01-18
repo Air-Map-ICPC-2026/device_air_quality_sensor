@@ -1,4 +1,4 @@
-# device_air_quality_sensor
+# Air quality device
 Contains hardware and software for the air quality sensor
 
 # The electric mapping and real circuit
