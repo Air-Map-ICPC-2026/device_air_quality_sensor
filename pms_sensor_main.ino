@@ -19,6 +19,10 @@ WiFiClient client;
 
 uint8_t buffer[32];
 
+/* ================= Software Watchdog ================= */
+unsigned long lastHealthyTime = 0;
+#define AUTO_RESET_TIMEOUT 120000UL   // 🔧 2 minutes (milliseconds)
+
 /* ================= WiFi Reconnect =================== */
 unsigned long lastWiFiCheck = 0;
 const unsigned long wifiCheckInterval = 10000;
@@ -39,15 +43,12 @@ bool readPMSdata() {
   }
 
   uint16_t sum = 0;
-  for (int i = 0; i < 30; i++) {
-    sum += buffer[i];
-  }
+  for (int i = 0; i < 30; i++) sum += buffer[i];
 
   uint16_t checksum = (buffer[30] << 8) | buffer[31];
   return (sum == checksum);
 }
 
-/* PMS data helper */
 uint16_t getValue(int index) {
   return (buffer[index] << 8) | buffer[index + 1];
 }
@@ -86,6 +87,17 @@ void ensureWiFiConnected() {
   Serial.println("WiFi disconnected, reconnecting...");
   WiFi.disconnect();
   WiFi.begin(ssid, password);
+
+  unsigned long startAttempt = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 30000) {
+    delay(500);
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi failed — restarting ESP32");
+    delay(100);
+    ESP.restart();
+  }
 }
 
 /* ================= Setup ================= */
@@ -106,11 +118,20 @@ void setup() {
   Serial.println("\nWiFi connected");
 
   ThingSpeak.begin(client);
+
+  lastHealthyTime = millis();   // initialize watchdog timer
 }
 
 /* ================= Loop ================= */
 
 void loop() {
+
+  /* 🔴 SOFTWARE WATCHDOG */
+  if (millis() - lastHealthyTime > AUTO_RESET_TIMEOUT) {
+    Serial.println("System inactive too long — restarting ESP32");
+    delay(100);
+    ESP.restart();
+  }
 
   if (millis() - lastWiFiCheck > wifiCheckInterval) {
     lastWiFiCheck = millis();
@@ -123,9 +144,7 @@ void loop() {
     float pm25 = getValue(12);
     float pm10 = getValue(14);
 
-    int aqi25 = AQI_PM25(pm25);
-    int aqi10 = AQI_PM10(pm10);
-    int aqi   = max(aqi25, aqi10);
+    int aqi = max(AQI_PM25(pm25), AQI_PM10(pm10));
 
     Serial.println("---- Air Quality ----");
     Serial.print("PM1.0  : "); Serial.print(pm1);  Serial.println(" µg/m³");
@@ -139,10 +158,14 @@ void loop() {
       ThingSpeak.setField(3, pm10);
       ThingSpeak.setField(4, aqi);
 
+      
       int status = ThingSpeak.writeFields(channelID, writeAPIKey);
       Serial.println(status == 200 ? "ThingSpeak update OK" : "ThingSpeak update FAILED");
+
+
+      lastHealthyTime = millis();   // ✅ system is healthy
     }
   }
 
-  delay(20000); // ThingSpeak rate limit
+  delay(20000);   // ThingSpeak rate limit
 }
