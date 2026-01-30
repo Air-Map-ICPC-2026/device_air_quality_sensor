@@ -21,7 +21,7 @@ uint8_t buffer[32];
 
 /* ================= Software Watchdog ================= */
 unsigned long lastHealthyTime = 0;
-#define AUTO_RESET_TIMEOUT 120000UL   // 🔧 2 minutes (milliseconds)
+#define AUTO_RESET_TIMEOUT 30000UL   // 🔧 30 seconds (milliseconds)
 
 /* ================= WiFi Reconnect =================== */
 unsigned long lastWiFiCheck = 0;
