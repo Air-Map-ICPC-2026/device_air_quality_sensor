@@ -1,38 +1,46 @@
 #include <WiFi.h>
 #include <ThingSpeak.h>
-#include <SoftwareSerial.h>
+#include <LiquidCrystal_I2C.h>
 
 /* ================== WiFi Settings ================== */
-const char* ssid = ""; // Put your wifi name here
-const char* password = ""; // PUt your wifi password here
+const char* ssid = "";
+const char* password = "";
 
 /* ================= ThingSpeak Settings ============== */
-unsigned long channelID = 0; // Put your ChannelID here
-const char* writeAPIKey = ""; // Put your API key here
+unsigned long channelID = 0; 
+const char* writeAPIKey = "";
 
 /* ================= PMS7003 Settings ================= */
 #define PMS_RX 16
 #define PMS_TX 17
 
-SoftwareSerial pmsSerial(PMS_RX, PMS_TX);
+HardwareSerial pmsSerial(2);   // ✅ UART2
 WiFiClient client;
 
 uint8_t buffer[32];
 
-/* ================= Software Watchdog ================= */
-unsigned long lastHealthyTime = 0;
-#define AUTO_RESET_TIMEOUT 30000UL   // 🔧 30 seconds (milliseconds)
+/* ================= LCD ================= */
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-/* ================= WiFi Reconnect =================== */
+/* ================= Watchdog ================= */
+unsigned long lastHealthyTime = 0;
+#define AUTO_RESET_TIMEOUT 60000UL   // ✅ 60 seconds
+
+/* ================= WiFi Reconnect ================= */
 unsigned long lastWiFiCheck = 0;
 const unsigned long wifiCheckInterval = 10000;
+
+/* ================= LCD Rotation ================= */
+unsigned long lastLCDUpdate = 0;
+uint8_t lcdPage = 0;   // 0=PM1, 1=PM2.5, 2=PM10
 
 /* ================= PMS7003 Read ================= */
 
 bool readPMSdata() {
   if (pmsSerial.available() < 32) return false;
 
-  if (pmsSerial.read() != 0x42) return false;
+  // Resync to frame header
+  while (pmsSerial.available() && pmsSerial.read() != 0x42);
   if (pmsSerial.read() != 0x4D) return false;
 
   buffer[0] = 0x42;
@@ -53,7 +61,7 @@ uint16_t getValue(int index) {
   return (buffer[index] << 8) | buffer[index + 1];
 }
 
-/* ================= AQI FUNCTIONS ================= */
+/* ================= AQI ================= */
 
 int calcAQI(float C, float Cl, float Ch, int Il, int Ih) {
   return (int)((Ih - Il) * (C - Cl) / (Ch - Cl) + Il);
@@ -84,88 +92,103 @@ int AQI_PM10(float pm10) {
 void ensureWiFiConnected() {
   if (WiFi.status() == WL_CONNECTED) return;
 
-  Serial.println("WiFi disconnected, reconnecting...");
   WiFi.disconnect();
   WiFi.begin(ssid, password);
 
-  unsigned long startAttempt = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startAttempt < 30000) {
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 30000) {
     delay(500);
   }
 
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi failed — restarting ESP32");
-    delay(100);
-    ESP.restart();
-  }
+  if (WiFi.status() != WL_CONNECTED) ESP.restart();
 }
 
 /* ================= Setup ================= */
 
 void setup() {
   Serial.begin(115200);
-  pmsSerial.begin(9600);
+  pmsSerial.begin(9600, SERIAL_8N1, PMS_RX, PMS_TX);
+
+  lcd.init();
+  lcd.backlight();
+  lcd.print("Air Quality");
+  delay(2000);
+  lcd.clear();
 
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(ssid, password);
 
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nWiFi connected");
+  while (WiFi.status() != WL_CONNECTED) delay(500);
 
   ThingSpeak.begin(client);
-
-  lastHealthyTime = millis();   // initialize watchdog timer
+  lastHealthyTime = millis();
 }
 
 /* ================= Loop ================= */
 
 void loop() {
 
-  /* 🔴 SOFTWARE WATCHDOG */
-  if (millis() - lastHealthyTime > AUTO_RESET_TIMEOUT) {
-    Serial.println("System inactive too long — restarting ESP32");
-    delay(100);
-    ESP.restart();
-  }
+  if (millis() - lastHealthyTime > AUTO_RESET_TIMEOUT) ESP.restart();
 
   if (millis() - lastWiFiCheck > wifiCheckInterval) {
     lastWiFiCheck = millis();
     ensureWiFiConnected();
   }
 
+  static uint16_t pm1 = 0, pm25 = 0, pm10 = 0;
+  static int aqi = 0;
+
   if (readPMSdata()) {
+    pm1  = getValue(10);
+    pm25 = getValue(12);
+    pm10 = getValue(14);
+    aqi  = max(AQI_PM25(pm25), AQI_PM10(pm10));
 
-    float pm1  = getValue(10);
-    float pm25 = getValue(12);
-    float pm10 = getValue(14);
-
-    int aqi = max(AQI_PM25(pm25), AQI_PM10(pm10));
-
-    Serial.println("---- Air Quality ----");
-    Serial.print("PM1.0  : "); Serial.print(pm1);  Serial.println(" µg/m³");
-    Serial.print("PM2.5  : "); Serial.print(pm25); Serial.println(" µg/m³");
-    Serial.print("PM10   : "); Serial.print(pm10); Serial.println(" µg/m³");
-    Serial.print("AQI    : "); Serial.println(aqi);
-
-    if (WiFi.status() == WL_CONNECTED) {
-      ThingSpeak.setField(1, pm1);
-      ThingSpeak.setField(2, pm25);
-      ThingSpeak.setField(3, pm10);
-      ThingSpeak.setField(4, aqi);
-
-      
-      int status = ThingSpeak.writeFields(channelID, writeAPIKey);
-      Serial.println(status == 200 ? "ThingSpeak update OK" : "ThingSpeak update FAILED");
-
-
-      lastHealthyTime = millis();   // ✅ system is healthy
-    }
+    lastHealthyTime = millis();   // ✅ feed watchdog
   }
 
-  delay(20000);   // ThingSpeak rate limit
+  /* ===== LCD ROTATION (5s) ===== */
+  if (millis() - lastLCDUpdate > 5000) {
+    lastLCDUpdate = millis();
+    lcd.clear();
+
+    // ----- Line 1: PM value + unit -----
+    lcd.setCursor(0, 0);
+    if (lcdPage == 0) {
+      lcd.print("PM1.0: ");
+      lcd.print(pm1);
+      lcd.print(" ug/m3");
+    }
+    else if (lcdPage == 1) {
+      lcd.print("PM2.5: ");
+      lcd.print(pm25);
+      lcd.print(" ug/m3");
+    }
+    else {
+      lcd.print("PM10: ");
+      lcd.print(pm10);
+      lcd.print(" ug/m3");
+    }
+
+    // ----- Line 2: AQI always -----
+    lcd.setCursor(0, 1);
+    lcd.print("AQI: ");
+    lcd.print(aqi);
+
+    lcdPage = (lcdPage + 1) % 3;
+  }
+
+
+  /* ===== ThingSpeak ===== */
+  static unsigned long lastUpload = 0;
+  if (millis() - lastUpload > 20000 && WiFi.status() == WL_CONNECTED) {
+    lastUpload = millis();
+
+    ThingSpeak.setField(1, pm1);
+    ThingSpeak.setField(2, pm25);
+    ThingSpeak.setField(3, pm10);
+    ThingSpeak.setField(4, aqi);
+    ThingSpeak.writeFields(channelID, writeAPIKey);
+  }
 }
