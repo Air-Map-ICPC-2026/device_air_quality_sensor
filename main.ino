@@ -1,6 +1,8 @@
 #include <WiFi.h>
 #include <ThingSpeak.h>
 #include <LiquidCrystal_I2C.h>
+#include <Wire.h>
+#include <Adafruit_AHT10.h>
 
 /* ================== WiFi Settings ================== */
 const char* ssid = "";
@@ -13,18 +15,19 @@ const char* writeAPIKey = "";
 /* ================= PMS7003 Settings ================= */
 #define PMS_RX 16
 #define PMS_TX 17
-
-HardwareSerial pmsSerial(2);   // ✅ UART2
+HardwareSerial pmsSerial(2);
 WiFiClient client;
-
 uint8_t buffer[32];
+
+/* ================= AHT10 ================= */
+Adafruit_AHT10 aht;
 
 /* ================= LCD ================= */
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 /* ================= Watchdog ================= */
 unsigned long lastHealthyTime = 0;
-#define AUTO_RESET_TIMEOUT 60000UL   // ✅ 60 seconds
+#define AUTO_RESET_TIMEOUT 60000UL
 
 /* ================= WiFi Reconnect ================= */
 unsigned long lastWiFiCheck = 0;
@@ -32,14 +35,13 @@ const unsigned long wifiCheckInterval = 10000;
 
 /* ================= LCD Rotation ================= */
 unsigned long lastLCDUpdate = 0;
-uint8_t lcdPage = 0;   // 0=PM1, 1=PM2.5, 2=PM10
+uint8_t lcdPage = 0;   // 0=PM1, 1=PM2.5, 2=PM10, 3=Temp/Hum
 
 /* ================= PMS7003 Read ================= */
 
 bool readPMSdata() {
   if (pmsSerial.available() < 32) return false;
 
-  // Resync to frame header
   while (pmsSerial.available() && pmsSerial.read() != 0x42);
   if (pmsSerial.read() != 0x4D) return false;
 
@@ -109,6 +111,13 @@ void setup() {
   Serial.begin(115200);
   pmsSerial.begin(9600, SERIAL_8N1, PMS_RX, PMS_TX);
 
+  Wire.begin();   // I2C start
+
+  if (!aht.begin()) {
+    Serial.println("AHT10 not found!");
+    while (1);
+  }
+
   lcd.init();
   lcd.backlight();
   lcd.print("Air Quality");
@@ -138,49 +147,52 @@ void loop() {
 
   static uint16_t pm1 = 0, pm25 = 0, pm10 = 0;
   static int aqi = 0;
+  static float temperature = 0;
+  static float humidity = 0;
 
+  /* ===== Read PMS ===== */
   if (readPMSdata()) {
     pm1  = getValue(10);
     pm25 = getValue(12);
     pm10 = getValue(14);
     aqi  = max(AQI_PM25(pm25), AQI_PM10(pm10));
-
-    lastHealthyTime = millis();   // ✅ feed watchdog
+    lastHealthyTime = millis();
   }
 
-  /* ===== LCD ROTATION (5s) ===== */
+  /* ===== Read AHT10 ===== */
+  sensors_event_t hum, temp;
+  aht.getEvent(&hum, &temp);
+  temperature = temp.temperature;
+  humidity = hum.relative_humidity;
+
+  /* ===== LCD ROTATION ===== */
   if (millis() - lastLCDUpdate > 5000) {
     lastLCDUpdate = millis();
     lcd.clear();
 
-    // ----- Line 1: PM value + unit -----
     lcd.setCursor(0, 0);
     if (lcdPage == 0) {
-      lcd.print("PM1.0: ");
-      lcd.print(pm1);
-      lcd.print(" ug/m3");
-    }
-    else if (lcdPage == 1) {
-      lcd.print("PM2.5: ");
-      lcd.print(pm25);
-      lcd.print(" ug/m3");
-    }
-    else {
-      lcd.print("PM10: ");
-      lcd.print(pm10);
-      lcd.print(" ug/m3");
+      lcd.print("PM1.0: "); lcd.print(pm1);
+    } else if (lcdPage == 1) {
+      lcd.print("PM2.5: "); lcd.print(pm25);
+    } else if (lcdPage == 2) {
+      lcd.print("PM10: "); lcd.print(pm10);
+    } else {
+      lcd.print("T:");
+      lcd.print(temperature,1);
+      lcd.print("C H:");
+      lcd.print(humidity,0);
+      lcd.print("%");
     }
 
-    // ----- Line 2: AQI always -----
     lcd.setCursor(0, 1);
     lcd.print("AQI: ");
     lcd.print(aqi);
 
-    lcdPage = (lcdPage + 1) % 3;
+    lcdPage = (lcdPage + 1) % 4;
   }
 
-
-  /* ===== ThingSpeak ===== */
+  /* ===== ThingSpeak Upload ===== */
   static unsigned long lastUpload = 0;
   if (millis() - lastUpload > 20000 && WiFi.status() == WL_CONNECTED) {
     lastUpload = millis();
@@ -189,6 +201,9 @@ void loop() {
     ThingSpeak.setField(2, pm25);
     ThingSpeak.setField(3, pm10);
     ThingSpeak.setField(4, aqi);
+    ThingSpeak.setField(5, temperature);
+    ThingSpeak.setField(6, humidity);
+
     ThingSpeak.writeFields(channelID, writeAPIKey);
   }
 }
